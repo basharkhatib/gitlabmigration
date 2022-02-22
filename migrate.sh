@@ -8,11 +8,8 @@ script_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")" &>/dev/null && pwd -P)
 usage() {
   cat << EOF # remove the space between << and EOF, this is due to web plugin issue
 Usage: $(basename "${BASH_SOURCE[0]}") [--path-to-jenkins-properties] [--path-to-service-parameters] [--skip-migrating-environment-variable] [[--git-lab-access-token]] [[--git-lab-environment-variable-project-id]]
-
 Script description here.
-
 Available options:
-
 -h, --help      Print this help and exit
 -v, --verbose   Print script debug info
 --path-to-jenkins-properties    The complete path to Jenkinsfile.properties in project.
@@ -38,7 +35,7 @@ setup_colors() {
 }
 
 msg() {
-  echo >&2 message: "${1-}"
+  echo >&2 "${1-}"
 }
 
 die() {
@@ -123,11 +120,13 @@ rawurlencode() {
   REPLY="${encoded}"   #+or echo the result (EASIER)... or both... :p
 }
 
+hyperlink(){ printf '\e]8;;%s\e\\%s\e]8;;\e\\' "$1" "${2:-$1}";}
+
 parse_params "$@"
 setup_colors
 
 
-AWS_RESPONSE=$(aws sts get-caller-identity)
+AWS_RESPONSE=$(aws sts get-caller-identity || true)
 if [ -z "$AWS_RESPONSE" ]; then
     die "${RED}You have to be logged in on your AWS sandbox account. Run ${BLUE}okta-aws sandbox${NOFORMAT}${RED} and the rerun the script."
 else
@@ -144,11 +143,14 @@ msg "- path-to-service-parameters: ${path_to_service_parameters}"
 msg "- git_lab_access_token: ${git_lab_access_token}"
 msg "- git_lab_environment_variable_project_id: ${git_lab_environment_variable_project_id}"
 
-curl --header "PRIVATE-TOKEN: ${git_lab_access_token}" "https://gitlab.aofl.com/api/v4/projects/2939/repository/files/$(rawurlencode 'Jenkinsfile')/raw?ref=master" > Jenkinsfile.original
+
+curl --header "PRIVATE-TOKEN: ${git_lab_access_token}" -s "https://gitlab.aofl.com/api/v4/projects/2939/repository/files/$(rawurlencode 'Jenkinsfile')/raw?ref=master" > Jenkinsfile.original
 
 if ! diff -q Jenkinsfile Jenkinsfile.original &>/dev/null; then
   >&2
-    msg """${RED}The Jenkinsfile in this project is different than the original format.
+    msg """
+
+     ⚠️️️️ ${RED}The Jenkinsfile in this project is different than the original format.
      It is suggested to review these changes before going further with the migration process to make sure
      any custom or non-standard CI/CD process is migrated.${NOFORMAT}"""
     read -u 2 -p "Would you like to preview the diff? (y/n)" yn
@@ -158,14 +160,14 @@ if ! diff -q Jenkinsfile Jenkinsfile.original &>/dev/null; then
                 --new-group-format=$'\e[0;31m%>\e[0m' \
                 Jenkinsfile Jenkinsfile.original | tee diff.output && echo $diff.output; break;;
         [Nn]* )
-            msg "${GREEN}It's up to you, we are just trying to help!${NOFORMAT}"; break;;
+            msg "${GREEN}It's up to you, we are just trying to help!${NOFORMAT} 🤷‍"; break;;
         * ) echo "Please answer yes or no.";;
     esac
 
     read -u 2 -p "Would you like to continue with the migration? (y/n)" yn
     case $yn in
         [Yy]* )
-            msg "${YELLOW}Proceeding with migration...${NOFORMAT}" ; break ;;
+            msg "${YELLOW}Proceeding with migration...${NOFORMAT} " ; break ;;
         [Nn]* )
             rm Jenkinsfile.original diff.output && die "Terminating migration script!"; break ;;
         * ) echo "Please answer yes or no.";;
@@ -173,6 +175,56 @@ if ! diff -q Jenkinsfile Jenkinsfile.original &>/dev/null; then
 fi
 
 rm -f Jenkinsfile.original diff.output
+
+SCRIPTRUNER_FILES=$(find *scriptrunner*)
+if [ ! -z "${SCRIPTRUNER_FILES}" ]
+then
+    while true; do
+        msg """
+        *******************************************
+        ${RED} ⚠️ It appears that scriptrunner is set in this project. This requires some manual updates before proceeding. ${NOFORMAT}
+        *******************************************
+
+        ${CYAN}
+        Move common parameters key value pairs from
+
+        1. infra/scriptrunner/parameters-dev.json
+        2. infra/scriptrunner/parameters-stage.json
+        3. infra/scriptrunner/parameters-prod.json
+
+        To
+
+        1. ${path_to_service_parameters}/parameters-dev.json
+        2. ${path_to_service_parameters}/parameters-stage.json
+        3. ${path_to_service_parameters}/parameters-prod.json
+
+        And prefix common keys with \"Worker\".
+
+        Example:
+
+        {
+            \"ParameterKey\": \"ApplicationName\",
+            \"ParameterValue\": \"aofl-account-service-layer-worker\"
+        }
+
+        Becomes:
+
+        {
+            \"ParameterKey\": \"WorkerApplicationName\",
+            \"ParameterValue\": \"aofl-account-service-layer-worker\"
+        }
+
+        And keep unique ones as is.
+        ${NOFORMAT}"""
+        read -u 2 -p "Do you need help with this? (y/n)" yn
+        case $yn in
+            [Yy]* )
+                open slack://user?team=FU7U6LLTM2.&id=U7U6LLTM2; break;;
+            [Nn]* ) msg "${GREEN} Awesome!.${NOFORMAT} 👏"; break;;
+            * ) echo "Please answer yes or no.";;
+        esac
+    done
+fi
 
 while read LINE; do export "JENKINS_PROPERTIES_${LINE}"; done < $(pwd)/${path_to_jenkins_properties}
 
@@ -241,6 +293,7 @@ do
                     read -u 2 -p "Is this considered a secret variable? (y/n)" yn
                     case $yn in
                         [Yy]* )
+                            echo 🤫;
                             PRIVATE_ENVIRONMENT_VARIABLES+="${key_value[0]}: ${key_value[1]} \n"; break;;
                         [Nn]* ) PUBLIC_ENVIRONMENT_VARIABLES+="  ${key_value[0]}: ${key_value[1]}\n"; break;;
                         * ) echo "Please answer yes or no.";;
@@ -273,8 +326,10 @@ environmentVariables:
 done
 
 while true; do
-    msg """${PURPLE}After migrating to Gitlab, there are some files related to Jenkins are not needed.
-    Here is a list of files not neede:
+    msg """
+
+    ☝️ ${RED}To complete the migrating to Gitlab, there are some files related to Jenkins pipeline that are not needed anymore.
+    Here is a list of files not needed:
     1. Jenkinsfile
     2. Jenkinsfile.properties
     3. ${path_to_service_parameters}/parameters-dev.json
@@ -284,43 +339,106 @@ while true; do
     read -u 2 -p "Would you like the migration script to take care of this? (y/n)" yn
     case $yn in
         [Yy]* )
-            rm Old_Jenkinsfile &&
-            rm Old_Jenkinsfile.properties &&
+            rm Jenkinsfile &&
+            rm Jenkinsfile.properties &&
             rm ${path_to_service_parameters}/parameters-*.json &&
-            msg "${GREEN}Jenkins related files were deleted!${NOFORMAT}"; break;;
-        [Nn]* ) msg "${YELLOW}Keeping Jenkins related file as requested.${NOFORMAT}"; break;;
+            msg "${GREEN}Jenkins related files were deleted!${NOFORMAT} 👍"; break;;
+        [Nn]* ) msg "${BLUE}Keeping Jenkins related file as requested.${NOFORMAT} 🤷‍"; break;;
         * ) echo "Please answer yes or no.";;
     esac
 done
 
+DOCKERFILE_CONTENT=$(curl --header "PRIVATE-TOKEN: ${git_lab_access_token}" -s "https://gitlab.aofl.com/api/v4/projects/4380/repository/files/$(rawurlencode 'Dockerfile')/raw?ref=main")
 while true; do
-    msg ''''${PURPLE}'There are some updates that has to be done on
-    Dockerfile.
+    msg """
 
-    Here is an example of a clean version of how a Dockerfile should look like:'${NOFORMAT}'
+    ${RED}
+    ⚠️ There are some updates that has to be done on Dockerfile.
+    Here is an example of a clean version of how a Dockerfile should look like:
+    ${NOFORMAT}
 
-    '${ORANGE}'
-    ARG COMPOSER_ARGS=''
+    ${ORANGE}
+${DOCKERFILE_CONTENT}
+    ${NOFORMAT}
 
-    FROM gitlab.aofl.com:5001/aofl-base-images/php-builder:1 as vendor
-    COPY composer.json composer.json
-    COPY composer.lock composer.lock
-    RUN composer install $COMPOSER_ARGS
-
-    FROM gitlab.aofl.com:5001/engineering-automation_tools/automation_images/aofl/php-app-v2-base-builder:7.3
-    COPY ./src /home/app/src
-    COPY --from=vendor /app/src/vendor /home/app/src/vendor
-    USER www-data
-    '${NOFORMAT}'
-
-    '${CYAN}'Please copy or fix your Dockerfile accommodate the updates.'${NOFORMAT}'
-    '''
+    ${CYAN}
+    Please copy or fix your Dockerfile to accommodate the updates.
+    ${NOFORMAT}
+    """
     read -u 2 -p "Did you fix Dockerfile? (y/n)" yn
     case $yn in
         [Yy]* )
-            msg "${GREEN}Awesome!!${NOFORMAT}"; break ;;
+            msg "${GREEN}Awesome!!${NOFORMAT} 👍"; break ;;
         [Nn]* )
-            msg "${GREEN}It's up to you, we are just trying to help!${NOFORMAT}"; break;;
+            msg "${GREEN}It's up to you, we are just trying to help! 🤦‍${NOFORMAT}"; break;;
         * ) echo "Please answer yes or no.";;
     esac
 done
+
+
+if [ ! -z "${SCRIPTRUNER_FILES}" ]
+then
+    while true; do
+        msg '''
+        '${RED}'
+        ***************************************
+        ⚠️ Since you have scriptrunner set in your project, This requires some manual updates before proceeding.
+        ***************************************
+        '${NOFORMAT}'
+
+        1. Update Dockerfile inside infra/scriptrunner/docker/Dockerfile to copy vendor folder
+
+            ARG COMPOSER_ARGS
+            FROM gitlab.aofl.com:5001/aofl-base-images/php-builder:1 as vendor
+            ARG COMPOSER_ARGS='--ignore-platform-reqs'
+            COPY composer.json composer.json
+            COPY composer.lock composer.lock
+            RUN composer install $COMPOSER_ARGS
+
+            FROM gitlab.aofl.com:5001/engineering-scripting_system/scripting-system-service-layer/worker:master
+            USER root
+            COPY ./src /home/app/src
+            COPY --from=vendor /app/src/vendor /home/app/src/vendor
+            USER www-data
+
+        2. Update template.yaml file
+
+            Merge infra/scriptrunner/template.yaml with template.yaml
+
+            See and example: https://gitlab.aofl.com/aofl-ws/aofl-account-service-layer/-/blob/dev/infra/template.yaml
+
+        3. Remove all parameters files and no longer used file inside scriptrunner folder.
+            - infra/scriptrunner/parameters-dev.json
+            - infra/scriptrunner/parameters-stage.json
+            - infra/scriptrunner/parameters-prod.json
+            - infra/scriptrunner/registry.yaml
+            - infra/scriptrunner/template.yaml
+
+        4. docker-compose.qat.yml is required when using PHP-Freighter-Generic as "CONFIG_PROFILE" under qat_server
+        '''
+        read -u 2 -p "Do you need help with the above?(y/n)" yn
+        case $yn in
+            [Yy]* )
+                open slack://user?team=FU7U6LLTM2.&id=U7U6LLTM2; break;;
+            [Nn]* )
+                msg "${GREEN}Awesome!${NOFORMAT}"; break ;;
+            * ) echo "Please answer yes or no.";;
+        esac
+    done
+fi
+
+while true; do
+    msg """
+        Update template.yaml to remove all references to filebeat.
+    """
+    read -u 2 -p "Do you need help with the above?(y/n)" yn
+    case $yn in
+        [Yy]* )
+            open slack://user?team=FU7U6LLTM2.&id=U7U6LLTM2; break;;
+        [Nn]* )
+            msg "${GREEN}Awesome!${NOFORMAT}"; break ;;
+        * ) echo "Please answer yes or no.";;
+    esac
+done
+
+msg """ ✅  Migration is done! """
