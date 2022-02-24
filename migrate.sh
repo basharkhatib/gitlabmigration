@@ -390,7 +390,7 @@ ${GITLAB_CI_CONTENT}
 done
 
 DOCKER_COMPOSE_CONTENT=$(curl --header "PRIVATE-TOKEN: ${git_lab_access_token}" -s "https://gitlab.aofl.com/api/v4/projects/4380/repository/files/$(rawurlencode 'docker-compose.ci.yml')/raw?ref=main")
-DOCKER_COMPOSE_CONTENT=${DOCKER_COMPOSE_CONTENT/"{{PACKAGE-NAME}}"/"\"$JENKINS_PROPERTIES_AWS_ECR_REPOSITORY_NAME\""}
+DOCKER_COMPOSE_CONTENT=${DOCKER_COMPOSE_CONTENT/"{{PACKAGE-NAME}}"/"$JENKINS_PROPERTIES_AWS_ECR_REPOSITORY_NAME"}
 
 while true; do
     msg """
@@ -408,7 +408,7 @@ ${DOCKER_COMPOSE_CONTENT}
     read -u 2 -p "Would you like the migration script create docker-compose.ci.yml for you? (y/n)" yn
     case $yn in
         [Yy]* )
-            echo "${DOCKER_COMPOSE_CONTENT}" > .gitlab-ci.yml; break;;
+            echo "${DOCKER_COMPOSE_CONTENT}" > docker-compose.ci.yml; break;;
         [Nn]* )
             msg "${GREEN}It's up to you, we are just trying to help! 🤦‍${NOFORMAT}"; break;;
         * ) echo "Please answer yes or no.";;
