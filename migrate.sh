@@ -461,7 +461,7 @@ fi
 
 while true; do
     msg """
-    Update template.yaml to remove all references to filebeat.
+    Update template.yaml to remove all references to filebeat and FileLogger.
     """
     read -u 2 -p "Do you need help with the above?(y/n)" yn
     case $yn in
